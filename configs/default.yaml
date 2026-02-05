@@ -1,0 +1,17 @@
+model:
+  hidden_size: 400
+  num_mixtures: 20
+  num_attention_components: 10
+  alphabet_size: 80
+
+training:
+  batch_size: 64
+  epochs: 50
+  learning_rate: 0.001
+  gradient_clip_lstm: 10
+  gradient_clip_output: 100
+  max_sequence_length: 700
+
+data:
+  train_split: 0.9
+  val_split: 0.1
