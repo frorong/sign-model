@@ -2,6 +2,27 @@
 
 LSTM 기반 손글씨 합성 모델 (Alex Graves의 논문 구현)
 
+---
+
+## awake - Mac 잠자기 방지 CLI
+
+ML 학습, openclaw gateway 실행 등 장시간 작업 시 Mac 잠자기를 방지합니다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aivis-sjlee/sign-model/master/tools/awake/install.sh | bash
+```
+
+**사용법:**
+```bash
+awake watch                    # 프로세스 감시 (train.py, openclaw gateway 등)
+awake run python train.py      # 명령어 실행 동안 잠자기 방지
+awake status                   # caffeinate 상태 확인
+```
+
+[자세한 문서 →](tools/awake/README.md)
+
+---
+
 ## 설치
 
 ```bash
