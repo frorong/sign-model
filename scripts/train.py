@@ -8,9 +8,11 @@ sys.path.insert(0, str(project_root))
 import argparse
 import yaml
 import torch
+torch.set_float32_matmul_precision("high")
 from torch.utils.data import DataLoader
 from datetime import datetime
 
+import time
 from datasets import IAMOnDBDataset, collate_fn
 from models import SynthesisNetwork
 from training import Trainer
@@ -25,7 +27,7 @@ def main():
     parser.add_argument('--checkpoint', type=str, default=None, help='Path to checkpoint to resume from')
     parser.add_argument('--output_dir', type=str, default='checkpoints', help='Output directory for checkpoints')
     parser.add_argument('--early_stop_patience', type=int, default=10, help='Early stopping patience (epochs)')
-    parser.add_argument('--early_stop_min_delta', type=float, default=0.001, help='Minimum delta for early stopping')
+    parser.add_argument('--early_stop_min_delta', type=float, default=0.01, help='Minimum delta for early stopping')
     args = parser.parse_args()
     
     with open(args.config, 'r') as f:
@@ -37,12 +39,15 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     print(f'Using device: {device}')
     
+    num_workers = config['training'].get('num_workers', 4)
+    
     train_dataset = IAMOnDBDataset(args.train_data)
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=True,
-        num_workers=0,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
         collate_fn=collate_fn
     )
     
@@ -53,7 +58,8 @@ def main():
             val_dataset,
             batch_size=config['training']['batch_size'],
             shuffle=False,
-            num_workers=0,
+            num_workers=num_workers,
+            persistent_workers=num_workers > 0,
             collate_fn=collate_fn
         )
     
@@ -86,9 +92,11 @@ def main():
     patience_counter = 0
     
     for epoch in range(start_epoch, config['training']['epochs']):
+        epoch_start = time.time()
         train_loss = trainer.train_epoch(train_dataloader, alphabet)
+        epoch_time = time.time() - epoch_start
         lr = trainer.get_lr()
-        print(f'Epoch {epoch + 1}/{config["training"]["epochs"]}, Train Loss: {train_loss:.4f}, LR: {lr:.6f}', end='')
+        print(f'Epoch {epoch + 1}/{config["training"]["epochs"]}, Train Loss: {train_loss:.4f}, LR: {lr:.6f}, Time: {epoch_time:.1f}s', end='')
         
         if val_dataloader:
             trainer.model.eval()

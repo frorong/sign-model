@@ -6,11 +6,11 @@ model:
 
 training:
   batch_size: 64
-  epochs: 50
-  learning_rate: 0.001
-  gradient_clip_lstm: 10
-  gradient_clip_output: 100
+  epochs: 300
+  learning_rate: 0.0001
+  gradient_clip: 10
   max_sequence_length: 700
+  num_workers: 4
 
 data:
   train_split: 0.9

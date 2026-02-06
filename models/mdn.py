@@ -17,8 +17,9 @@ class MixtureDensityLayer(nn.Module):
     def forward(self, h: torch.Tensor) -> dict[str, torch.Tensor]:
         pi = torch.softmax(self.pi_layer(h), dim=-1)
         mu = self.mu_layer(h).view(h.size(0), self.num_mixtures, 2)
-        sigma = torch.exp(self.sigma_layer(h)).view(h.size(0), self.num_mixtures, 2)
-        rho = torch.tanh(self.rho_layer(h))
+        sigma = torch.exp(self.sigma_layer(h).clamp(max=5.0)).view(h.size(0), self.num_mixtures, 2)
+        sigma = sigma.clamp(min=1e-4, max=10.0)
+        rho = torch.tanh(self.rho_layer(h)) * 0.95
         eos = torch.sigmoid(self.eos_layer(h)).squeeze(-1)
         
         return {
@@ -29,7 +30,7 @@ class MixtureDensityLayer(nn.Module):
             'eos': eos
         }
     
-    def sample(self, params: dict[str, torch.Tensor], bias: float = 0.0) -> torch.Tensor:
+    def sample(self, params: dict[str, torch.Tensor], bias: float = 0.0, temperature: float = 1.0) -> torch.Tensor:
         pi = params['pi']
         mu = params['mu']
         sigma = params['sigma']
@@ -38,22 +39,24 @@ class MixtureDensityLayer(nn.Module):
         
         batch_size = pi.size(0)
         
-        if bias > 0:
-            pi = torch.softmax(torch.log(pi + 1e-8) * (1 + bias), dim=-1)
-            sigma = sigma / (1 + bias)
+        temp = max(temperature * (1.0 - bias), 0.1)
         
-        idx = torch.multinomial(pi, 1).squeeze(-1)
+        pi_adjusted = torch.softmax(torch.log(pi + 1e-8) / temp, dim=-1)
+        sigma_adjusted = sigma * max(temp, 0.5)
+        
+        idx = torch.multinomial(pi_adjusted, 1).squeeze(-1)
         
         mu_selected = mu[torch.arange(batch_size), idx]
-        sigma_selected = sigma[torch.arange(batch_size), idx]
+        sigma_selected = sigma_adjusted[torch.arange(batch_size), idx]
         rho_selected = rho[torch.arange(batch_size), idx]
         
         z1 = torch.randn(batch_size, device=pi.device)
         z2 = torch.randn(batch_size, device=pi.device)
         
         x = mu_selected[:, 0] + sigma_selected[:, 0] * z1
-        y = mu_selected[:, 1] + sigma_selected[:, 1] * (rho_selected * z1 + torch.sqrt(1 - rho_selected ** 2) * z2)
+        y = mu_selected[:, 1] + sigma_selected[:, 1] * (rho_selected * z1 + torch.sqrt((1 - rho_selected ** 2).clamp_min(1e-6)) * z2)
         
-        eos_sample = (torch.rand(batch_size, device=pi.device) < eos).float()
+        eos_threshold = eos ** (1.0 / max(temp, 0.5))
+        eos_sample = (torch.rand(batch_size, device=pi.device) < eos_threshold).float()
         
         return torch.stack([x, y, eos_sample], dim=1)

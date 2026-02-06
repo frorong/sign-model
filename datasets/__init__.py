@@ -8,4 +8,9 @@ from .preprocessing import (
     text_to_onehot,
     filter_by_length,
 )
-from .synthetic import SyntheticStrokeDataset
+from .mobisig import (
+    load_mobisig,
+    parse_mobisig_file,
+    prepare_mobisig_h5,
+    MOBISIG_NAMES,
+)

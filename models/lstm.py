@@ -15,6 +15,8 @@ class PeepholeLSTM(nn.Module):
         self.p_i = nn.Parameter(torch.zeros(hidden_size))
         self.p_f = nn.Parameter(torch.zeros(hidden_size))
         self.p_o = nn.Parameter(torch.zeros(hidden_size))
+        
+        nn.init.constant_(self.W_f.bias, 1.0)
     
     def forward(self, x: torch.Tensor, state: tuple[torch.Tensor, torch.Tensor] = None) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         batch_size = x.size(0)

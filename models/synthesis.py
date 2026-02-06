@@ -15,6 +15,7 @@ class SynthesisNetwork(nn.Module):
         self.attention = SoftWindow(hidden_size, num_attention_components)
         self.lstm2 = PeepholeLSTM(3 + hidden_size + alphabet_size, hidden_size)
         self.lstm3 = PeepholeLSTM(3 + hidden_size + alphabet_size, hidden_size)
+        self.dropout = nn.Dropout(0.1)
         self.mdn = MixtureDensityLayer(hidden_size * 3, num_mixtures)
     
     def forward(self, x: torch.Tensor, c: torch.Tensor, state: dict = None) -> tuple[dict, dict]:
@@ -41,6 +42,7 @@ class SynthesisNetwork(nn.Module):
         h3, (h3, c3) = self.lstm3(lstm3_input, (h3, c3))
         
         h_combined = torch.cat([h1, h2, h3], dim=1)
+        h_combined = self.dropout(h_combined)
         mdn_params = self.mdn(h_combined)
         
         new_state = {

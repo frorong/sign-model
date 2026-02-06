@@ -17,17 +17,27 @@ class Trainer:
             weight_decay=1e-4
         )
         
+        self.warmup_epochs = 5
+        self.base_lr = config['training']['learning_rate']
+        
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer,
             T_max=config['training']['epochs']
         )
         
-        self.grad_clip_lstm = config['training']['gradient_clip_lstm']
-        self.grad_clip_output = config['training']['gradient_clip_output']
+        self.grad_clip = config['training'].get('gradient_clip', 5)
+        self.current_epoch = 0
     
     def train_epoch(self, dataloader: DataLoader, alphabet: str) -> float:
         self.model.train()
         total_loss = 0.0
+        
+        if self.current_epoch < self.warmup_epochs:
+            warmup_lr = self.base_lr * (self.current_epoch + 1) / self.warmup_epochs
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = warmup_lr
+        
+        self.current_epoch += 1
         
         for batch in dataloader:
             strokes = batch['strokes'].to(self.device)
@@ -44,7 +54,8 @@ class Trainer:
             
             total_loss += batch_loss.item()
         
-        self.scheduler.step()
+        if self.current_epoch >= self.warmup_epochs:
+            self.scheduler.step()
         return total_loss / len(dataloader)
     
     def get_lr(self) -> float:
@@ -77,28 +88,14 @@ class Trainer:
             params, state = self.model(x, c, state)
             state = {k: v.detach() if isinstance(v, torch.Tensor) else v for k, v in state.items()}
             
-            loss = mdn_loss(target, params)
-            total_loss = total_loss + loss * mask.mean()
+            loss = mdn_loss(target, params, mask=mask.to(self.device))
+            total_loss = total_loss + loss
             total_steps += 1
         
         return total_loss / max(total_steps, 1)
     
     def _clip_gradients(self):
-        lstm_params = []
-        other_params = []
-        
-        for name, param in self.model.named_parameters():
-            if param.grad is None:
-                continue
-            if 'lstm' in name:
-                lstm_params.append(param)
-            else:
-                other_params.append(param)
-        
-        if lstm_params:
-            torch.nn.utils.clip_grad_norm_(lstm_params, self.grad_clip_lstm)
-        if other_params:
-            torch.nn.utils.clip_grad_norm_(other_params, self.grad_clip_output)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
     
     def save_checkpoint(self, path: Path, epoch: int):
         torch.save({
