@@ -32,12 +32,23 @@ class HandwritingGenerator:
         self.load_alphabet()
     
     def load_alphabet(self):
-        train_path = project_root / "data" / "train.h5"
+        train_path = project_root / "data" / "train_words.h5"
+        if not train_path.exists():
+            train_path = project_root / "data" / "train.h5"
+        
         if train_path.exists():
             with h5py.File(train_path, 'r') as f:
-                self.alphabet = f.attrs['alphabet']
+                self.alphabet = f.attrs.get('alphabet', ' !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~')
+                if 'mean' in f and 'std' in f:
+                    self.mean = f['mean'][:]
+                    self.std = f['std'][:]
+                else:
+                    self.mean = None
+                    self.std = None
         else:
             self.alphabet = ' !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'
+            self.mean = None
+            self.std = None
     
     def get_models(self):
         checkpoint_dir = project_root / "checkpoints"
@@ -60,9 +71,9 @@ class HandwritingGenerator:
         state_dict = torch.load(model_path, map_location=self.device, weights_only=False)
         if 'model_state_dict' in state_dict:
             state_dict = state_dict['model_state_dict']
-        self.model.load_state_dict(state_dict)
+        self.model.load_state_dict(state_dict, strict=False)
         
-        self.sampler = Sampler(self.model, self.alphabet, self.device)
+        self.sampler = Sampler(self.model, self.alphabet, self.device, mean=self.mean, std=self.std)
         self.current_model = model_name
         return True
     
@@ -71,34 +82,7 @@ class HandwritingGenerator:
             return None
         
         strokes = self.sampler.generate(text.strip(), bias=bias)
-        return self.strokes_to_svg(strokes, scale)
-    
-    def strokes_to_svg(self, strokes, scale=1.0):
-        coords = np.cumsum(strokes[:, :2], axis=0) * scale * 50
-        
-        min_x, min_y = coords.min(axis=0)
-        max_x, max_y = coords.max(axis=0)
-        width = max_x - min_x + 40
-        height = max_y - min_y + 40
-        
-        path_parts = [f"M {coords[0, 0] - min_x + 20:.2f} {coords[0, 1] - min_y + 20:.2f}"]
-        pen_up = False
-        
-        for i in range(1, len(coords)):
-            x = coords[i, 0] - min_x + 20
-            y = coords[i, 1] - min_y + 20
-            if pen_up:
-                path_parts.append(f"M {x:.2f} {y:.2f}")
-                pen_up = False
-            else:
-                path_parts.append(f"L {x:.2f} {y:.2f}")
-            if strokes[i, 2] > 0.5:
-                pen_up = True
-        
-        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.0f} {height:.0f}">
-  <rect width="100%" height="100%" fill="white"/>
-  <path d="{' '.join(path_parts)}" fill="none" stroke="black" stroke-width="2"/>
-</svg>'''
+        return self.sampler.strokes_to_svg(strokes, width=400, height=100)
 
 
 generator = HandwritingGenerator()
@@ -149,8 +133,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         
         <div class="control slider-container">
             <label>Sharpness:</label>
-            <input type="range" id="bias" min="0" max="3" step="0.1" value="1.0">
-            <span id="biasValue">1.0</span>
+            <input type="range" id="bias" min="0" max="3" step="0.1" value="2.0">
+            <span id="biasValue">2.0</span>
         </div>
         
         <div class="control slider-container">

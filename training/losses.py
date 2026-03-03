@@ -3,6 +3,20 @@ import torch.nn.functional as F
 import math
 
 
+def char_prediction_loss(char_logits: torch.Tensor, phi: torch.Tensor, c: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+    batch_size, _, text_len = phi.shape
+    char_pos = phi.argmax(dim=-1).squeeze(1)
+    char_pos = char_pos.clamp(max=text_len - 1)
+    target_onehot = c[torch.arange(batch_size, device=c.device), char_pos, :]
+    target_idx = target_onehot.argmax(dim=-1)
+    loss = F.cross_entropy(char_logits, target_idx, reduction='none')
+    if mask is not None:
+        loss = (loss * mask).sum()
+    else:
+        loss = loss.sum()
+    return loss
+
+
 def mdn_loss(target: torch.Tensor, params: dict[str, torch.Tensor], mask: torch.Tensor = None) -> torch.Tensor:
     eps = 1e-6
     
@@ -36,10 +50,10 @@ def mdn_loss(target: torch.Tensor, params: dict[str, torch.Tensor], mask: torch.
     
     eos_bce = F.binary_cross_entropy(eos, eos_t, reduction='none')
     
-    loss = stroke_nll + 2.0 * eos_bce
+    loss = stroke_nll + eos_bce
     
     if mask is not None:
         mask = mask.to(loss.dtype)
-        return (loss * mask).sum() / mask.sum().clamp_min(1.0)
+        return (loss * mask).sum()
     
-    return loss.mean()
+    return loss.sum()

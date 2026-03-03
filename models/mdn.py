@@ -17,9 +17,8 @@ class MixtureDensityLayer(nn.Module):
     def forward(self, h: torch.Tensor) -> dict[str, torch.Tensor]:
         pi = torch.softmax(self.pi_layer(h), dim=-1)
         mu = self.mu_layer(h).view(h.size(0), self.num_mixtures, 2)
-        sigma = torch.exp(self.sigma_layer(h).clamp(max=5.0)).view(h.size(0), self.num_mixtures, 2)
-        sigma = sigma.clamp(min=1e-4, max=10.0)
-        rho = torch.tanh(self.rho_layer(h)) * 0.95
+        sigma = torch.exp(self.sigma_layer(h).clamp(min=-20, max=20)).view(h.size(0), self.num_mixtures, 2)
+        rho = torch.tanh(self.rho_layer(h))
         eos = torch.sigmoid(self.eos_layer(h)).squeeze(-1)
         
         return {
@@ -41,8 +40,10 @@ class MixtureDensityLayer(nn.Module):
         
         temp = max(temperature * (1.0 - bias), 0.1)
         
-        pi_adjusted = torch.softmax(torch.log(pi + 1e-8) / temp, dim=-1)
-        sigma_adjusted = sigma * max(temp, 0.5)
+        log_pi = torch.log(pi.clamp_min(1e-8)) / temp
+        log_pi = torch.nan_to_num(log_pi, nan=0.0, posinf=0.0, neginf=-1e6)
+        pi_adjusted = torch.softmax(log_pi, dim=-1)
+        sigma_adjusted = sigma.clamp_min(1e-6) * max(temp, 0.5)
         
         idx = torch.multinomial(pi_adjusted, 1).squeeze(-1)
         

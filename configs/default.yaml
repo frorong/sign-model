@@ -5,12 +5,13 @@ model:
   alphabet_size: 80
 
 training:
-  batch_size: 64
+  batch_size: 32
   epochs: 300
   learning_rate: 0.0001
   gradient_clip: 10
   max_sequence_length: 700
   num_workers: 4
+  char_loss_weight: 0.1
 
 data:
   train_split: 0.9

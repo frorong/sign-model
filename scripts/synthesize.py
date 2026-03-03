@@ -9,6 +9,7 @@ import argparse
 import yaml
 import torch
 import numpy as np
+import h5py
 
 from models import SynthesisNetwork
 from inference import Sampler
@@ -44,7 +45,17 @@ def main():
         state_dict = state_dict['model_state_dict']
     model.load_state_dict(state_dict)
     
-    sampler = Sampler(model, DEFAULT_ALPHABET, device)
+    mean, std = None, None
+    train_path = project_root / "data" / "train_words.h5"
+    if not train_path.exists():
+        train_path = project_root / "data" / "train.h5"
+    if train_path.exists():
+        with h5py.File(train_path, 'r') as f:
+            if 'mean' in f and 'std' in f:
+                mean = f['mean'][:]
+                std = f['std'][:]
+    
+    sampler = Sampler(model, DEFAULT_ALPHABET, device, mean=mean, std=std)
     
     print(f'Generating "{args.text}"...')
     strokes = sampler.generate(args.text, bias=args.bias)

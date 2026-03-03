@@ -13,15 +13,25 @@ PRESETS = {
 
 
 class Sampler:
-    def __init__(self, model: SynthesisNetwork, alphabet: str, device: torch.device):
+    def __init__(self, model: SynthesisNetwork, alphabet: str, device: torch.device, mean=None, std=None):
         self.model = model.to(device)
         self.model.eval()
         self.alphabet = alphabet
         self.device = device
+        
+        if mean is not None and std is not None:
+            self.mean = torch.tensor(mean, dtype=torch.float32, device=device)
+            self.std = torch.tensor(std, dtype=torch.float32, device=device)
+        else:
+            self.mean = None
+            self.std = None
     
     @torch.no_grad()
     def generate(self, text: str, max_steps: int = 700, bias: float = 1.0, 
                  min_steps: int = 50, progress_callback=None) -> np.ndarray:
+        text = text.strip()
+        if text and not text.endswith(' '):
+            text = text + ' '
         c = torch.tensor(text_to_onehot(text, self.alphabet), device=self.device)
         c = c.unsqueeze(0)
         text_len = len(text)
@@ -45,7 +55,10 @@ class Sampler:
                 phi = state['phi']
                 kappa_mean = state['k'].mean().item()
                 
-                phi_at_end = phi[0, -1].item() if phi.size(1) > 0 else 0
+                if phi.dim() == 3:
+                    phi_at_end = phi[0, 0, -1].item() if phi.size(2) > 0 else 0
+                else:
+                    phi_at_end = phi[0, -1].item() if phi.size(1) > 0 else 0
                 
                 if kappa_mean > (text_len - 1) and phi_at_end > 0.6:
                     done_streak += 1
@@ -55,7 +68,17 @@ class Sampler:
                 if done_streak >= 15 and x[0, 2].item() > 0.7:
                     break
         
-        return np.array(strokes)
+        strokes_array = np.array(strokes)
+        strokes_array = self.denormalize_strokes(strokes_array)
+        
+        coords = self.strokes_to_coords(strokes_array)
+        coord_range = coords.max(axis=0) - coords.min(axis=0)
+        if coord_range[0] > 10000 or coord_range[1] > 10000:
+            print(f"Warning: Large coordinate range detected: {coord_range}")
+            print(f"Mean: {self.mean}, Std: {self.std}")
+            print(f"Stroke range: {strokes_array[:, :2].min(axis=0)} to {strokes_array[:, :2].max(axis=0)}")
+        
+        return strokes_array
     
     def strokes_to_coords(self, strokes: np.ndarray) -> np.ndarray:
         coords = np.cumsum(strokes[:, :2], axis=0)
@@ -85,6 +108,20 @@ class Sampler:
             preset = 'normal'
         bias = PRESETS[preset]['bias']
         return self.generate(text, bias=bias, **kwargs)
+    
+    def denormalize_strokes(self, strokes: np.ndarray) -> np.ndarray:
+        if self.mean is None or self.std is None:
+            return strokes
+        denorm = strokes.copy()
+        mean_np = self.mean.cpu().numpy() if isinstance(self.mean, torch.Tensor) else self.mean
+        std_np = self.std.cpu().numpy() if isinstance(self.std, torch.Tensor) else self.std
+        
+        if mean_np.ndim == 1 and mean_np.shape[0] == 2:
+            denorm[:, 0] = strokes[:, 0] * std_np[0] + mean_np[0]
+            denorm[:, 1] = strokes[:, 1] * std_np[1] + mean_np[1]
+        else:
+            denorm[:, :2] = strokes[:, :2] * std_np + mean_np
+        return denorm
     
     def normalize_strokes(self, strokes: np.ndarray) -> np.ndarray:
         coords = self.strokes_to_coords(strokes)
